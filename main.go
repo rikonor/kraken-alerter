@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	kraken "github.com/Beldur/kraken-go-api-client"
@@ -20,6 +23,18 @@ Goals:
 3. Send me an SMS when the alerts are raised
 
 */
+
+const (
+	defaultLowerPriceBound = 0.0
+	defaultUpperPriceBound = 10.0
+)
+
+var priceBoundsMux = sync.Mutex{}
+var lowerPriceBound = defaultLowerPriceBound
+var upperPriceBound = defaultUpperPriceBound
+
+var alertsEnabledMux = sync.Mutex{}
+var alertsEnabled bool
 
 type TradingPairName string
 
@@ -107,27 +122,124 @@ func queryPriceAndSendAlerts(krakenAPI *kraken.KrakenApi, twilioAPI *twilio.Clie
 		fmt.Printf("Last Price for %s: %s\n", TradingPairETHXBT, lastPrice)
 
 		// Check if the price should trigger an alert
-		lowerPriceBound := 0.018
-		upperPriceBound := 0.0181
-
 		fLastPrice, err := strconv.ParseFloat(lastPrice, 64)
 		if err != nil {
 			fmt.Println("Failed to convert lastPrice to float64:", err)
 			return
 		}
 
+		priceBoundsMux.Lock()
 		if lowerPriceBound < fLastPrice && fLastPrice < upperPriceBound {
+			priceBoundsMux.Unlock()
 			fmt.Printf("Price is within desired bounds: %f < %f < %f\n", lowerPriceBound, fLastPrice, upperPriceBound)
 			time.Sleep(queryFrequency)
 			continue
 		}
+		priceBoundsMux.Unlock()
 
 		// Send SMS
 		fmt.Printf("Price is outside of desired bounds (%f). Sending alert\n", fLastPrice)
-		priceSMSAlert(twilioAPI, TradingPairETHXBT, lastPrice)
+		alertsEnabledMux.Lock()
+		if alertsEnabled {
+			priceSMSAlert(twilioAPI, TradingPairETHXBT, lastPrice)
+
+			fmt.Println("Disabling alerts until acknoweldged")
+			alertsEnabled = false
+		} else {
+			fmt.Println("Alerts are disabled")
+		}
+		alertsEnabledMux.Unlock()
 
 		time.Sleep(queryFrequency)
 	}
+}
+
+// HTTP Handlers
+func setUpperPriceBoundsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Error: Only POST accepted")
+		return
+	}
+
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, err)
+		return
+	}
+
+	// Extract new bound
+	newUpperBound, err := strconv.ParseFloat(string(b), 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Error: setUpperBound requires float64")
+		return
+	}
+
+	priceBoundsMux.Lock()
+	upperPriceBound = newUpperBound
+	priceBoundsMux.Unlock()
+
+	fmt.Fprint(w, "Success")
+}
+
+func setLowerPriceBoundsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Error: Only POST accepted")
+		return
+	}
+
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, err)
+		return
+	}
+
+	// Extract new bound
+	newLowerBound, err := strconv.ParseFloat(string(b), 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Error: setLowerBound requires float64")
+		return
+	}
+
+	priceBoundsMux.Lock()
+	lowerPriceBound = newLowerBound
+	priceBoundsMux.Unlock()
+
+	fmt.Fprint(w, "Success")
+}
+
+func setAlertsEnabledAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Error: Only POST accepted")
+		return
+	}
+
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, err)
+		return
+	}
+
+	// Extract new bound
+	newAlertsEnabled, err := strconv.ParseBool(string(b))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, "Error: setLowerBound requires bool")
+		return
+	}
+
+	alertsEnabledMux.Lock()
+	alertsEnabled = newAlertsEnabled
+	alertsEnabledMux.Unlock()
+
+	fmt.Fprint(w, "Success")
 }
 
 // Kraken API Credentials
@@ -147,6 +259,12 @@ func main() {
 
 	// Create Twilio API
 	twilioAPI := twilio.NewClient(*twilioAccountSid, *twilioAuthToken, nil)
+
+	// Setup HTTP Server
+	http.HandleFunc("/setUpperPriceBound", setUpperPriceBoundsAPI)
+	http.HandleFunc("/setLowerPriceBound", setLowerPriceBoundsAPI)
+	http.HandleFunc("/setAlertsEnabled", setAlertsEnabledAPI)
+	go http.ListenAndServe(":8080", nil)
 
 	queryPriceAndSendAlerts(krakenAPI, twilioAPI)
 }
