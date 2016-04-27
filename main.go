@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -21,6 +22,12 @@ Goals:
 1. Retreive XBT -> ETH exchange rate
 2. Set checkpoints to alert me at
 3. Send me an SMS when the alerts are raised
+
+TODO
+1. Setup proper logging
+2. Create an additional cli tool to setting up bounds and enabling alerts
+3. CLI tool could also add new trading pairs
+4. Add alert to SMS about failures
 
 */
 
@@ -98,7 +105,7 @@ func getPairTickerInfo(api *kraken.KrakenApi, pair TradingPairName) (TradingPair
 
 func priceSMSAlert(twilioAPI *twilio.Client, pairName TradingPairName, lastPrice string) {
 	From := "+12033496456"
-	To := "(203) 451-1578"
+	To := *phoneToAlert
 
 	msg := fmt.Sprintf("Last Price for %s: %s\n", pairName, lastPrice)
 	_, _, err := twilioAPI.Messages.SendSMS(From, To, msg)
@@ -119,7 +126,7 @@ func queryPriceAndSendAlerts(krakenAPI *kraken.KrakenApi, twilioAPI *twilio.Clie
 
 		lastPrice := tpi.Last[0]
 
-		fmt.Printf("Last Price for %s: %s\n", TradingPairETHXBT, lastPrice)
+		fmt.Printf("%s Last Price for %s: %s\n", currTime(), TradingPairETHXBT, lastPrice)
 
 		// Check if the price should trigger an alert
 		fLastPrice, err := strconv.ParseFloat(lastPrice, 64)
@@ -242,6 +249,10 @@ func setAlertsEnabledAPI(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, "Success")
 }
 
+func currTime() string {
+	return time.Now().Format(time.RFC3339)
+}
+
 // Kraken API Credentials
 var krakenAPIKey = flag.String("kraken-key", "", "Kraken API key")
 var krakenAPISecret = flag.String("kraken-secret", "", "Kraken API secret")
@@ -250,9 +261,19 @@ var krakenAPISecret = flag.String("kraken-secret", "", "Kraken API secret")
 var twilioAccountSid = flag.String("twilio-sid", "", "Twilio Account SID")
 var twilioAuthToken = flag.String("twilio-token", "", "Twilio Authentication Token")
 
+// Phone to alert
+var phoneToAlert = flag.String("phone", "", "Phone to alert")
+
 func main() {
-	fmt.Println("Starting Kraken-Alerter")
 	flag.Parse()
+
+	// Phone is mandatory
+	if *phoneToAlert == "" {
+		fmt.Println("Please provide a phone number to alert")
+		os.Exit(1)
+	}
+
+	fmt.Println(currTime(), "Starting Kraken-Alerter")
 
 	// Create Kraken API
 	krakenAPI := kraken.NewKrakenApi(*krakenAPIKey, *krakenAPISecret)
