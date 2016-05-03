@@ -82,7 +82,7 @@ func (ka *KrakenAlerter) queryPriceAndSendAlerts() {
 		tpi, err := ka.getPairTickerInfo()
 		if err != nil {
 			fmt.Println("Failed to get pair ticker info:", err)
-			return
+			continue
 		}
 
 		lastPrice, err := strconv.ParseFloat(tpi.Last[0], 64)
