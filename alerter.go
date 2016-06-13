@@ -92,7 +92,7 @@ func (ka *KrakenAlerter) queryPriceAndSendAlerts() {
 		}
 		ka.LastPrice = lastPrice
 
-		fmt.Printf("%s Last Price for %s: %f\n", currTime(), "XETHXXBT", ka.LastPrice)
+		fmt.Printf("%s Last Price for %s: %f\n", currTime(), "XETHZUSD", ka.LastPrice)
 
 		if ka.LowerPriceBound < ka.LastPrice && ka.LastPrice < ka.UpperPriceBound {
 			fmt.Printf("Price is within desired bounds: %f < %f < %f\n", ka.LowerPriceBound, ka.LastPrice, ka.UpperPriceBound)
@@ -119,7 +119,7 @@ func (ka *KrakenAlerter) getPairTickerInfo() (TradingPairTickerInfo, error) {
 	var tpi TradingPairTickerInfo
 
 	result, err := ka.KrakenAPI.Query("Ticker", map[string]string{
-		"pair": "XETHXXBT",
+		"pair": "XETHZUSD",
 	})
 
 	if err != nil {
@@ -127,7 +127,7 @@ func (ka *KrakenAlerter) getPairTickerInfo() (TradingPairTickerInfo, error) {
 		return tpi, fmt.Errorf("API Query failed: %s", err)
 	}
 
-	tmp1 := result.(map[string]interface{})["XETHXXBT"]
+	tmp1 := result.(map[string]interface{})["XETHZUSD"]
 	tpi, err = unmarshalInterfaceToTradingPairTickerInfo(tmp1)
 	if err != nil {
 		fmt.Println("Error:", err)
@@ -142,7 +142,7 @@ func (ka *KrakenAlerter) priceSMSAlert() {
 	To := ka.Phone
 
 	// TODO: Add lower bound and say UP/DOWN
-	msg := fmt.Sprintf("Last Price for %s: %f < %f < %f\n", "XETHXXBT", ka.LowerPriceBound, ka.LastPrice, ka.UpperPriceBound)
+	msg := fmt.Sprintf("Last Price for %s: %f < %f < %f\n", "XETHZUSD", ka.LowerPriceBound, ka.LastPrice, ka.UpperPriceBound)
 	_, _, err := ka.TwilioAPI.Messages.SendSMS(From, To, msg)
 	if err != nil {
 		fmt.Println("Failed to send SMS message:", err)
